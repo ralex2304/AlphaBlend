@@ -10,7 +10,8 @@ Status::Statuses BmpImg::read_from_file(const char* filename) {
     assert(filename);
 
     long size = 0;
-    STATUS_CHECK(file_open_read_close(filename, &file_buffer, &size, 256)); //< extra 256 bytes for AVX
+    STATUS_CHECK(file_open_read_close(filename, &file_buffer, &size, 32 * 2 + 32)); //< extra 64 bytes for AVX
+                                                                                    //< + 32 for aligning
 
     BmpFileHeader* file_header = (BmpFileHeader*)file_buffer;
     BmpInfoHeader* info_header = (BmpInfoHeader*)(file_buffer + sizeof(BmpFileHeader));
@@ -21,11 +22,14 @@ Status::Statuses BmpImg::read_from_file(const char* filename) {
                      info_header->compression != 3,         "program supports uncompressed files only");
     BMP_CHECK_ERROR_(info_header->bit_count != 32,          "color scheme must be BGRA (32 bits)");
 
-    img_array = file_buffer + file_header->offset;
-    file_size = (size_t)size;
-
     width = info_header->width;
     height = info_header->height;
+
+    img_array = file_buffer + file_header->offset + (32 - (((size_t)file_buffer + file_header->offset) % 32));
+
+    memmove(img_array, file_buffer + file_header->offset, size - file_header->offset);
+
+    file_size = (size_t)size;
 
     return Status::NORMAL_WORK;
 };

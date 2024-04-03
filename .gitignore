@@ -7,4 +7,5 @@ main
 /clang_*
 build
 *.code-workspace
+vgcore.*
 

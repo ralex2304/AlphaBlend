@@ -14,7 +14,7 @@ CFLAGS_SANITIZER = -fsanitize=address,alignment,bool,bounds,enum,float-cast-over
 				   object-size,return,returns-nonnull-attribute,shift,signed-integer-overflow,$\
 				   undefined,unreachable,vla-bound,vptr
 
-OPTIMISATION = -DNDEBUG -O3 -march=native $(OPTION_FLAGS)
+OPTIMISATION = -DNDEBUG -O2 -march=native $(OPTION_FLAGS)
 
 EXTERNAL_DIR =
 IFLAGS =
