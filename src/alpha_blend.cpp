@@ -104,6 +104,7 @@ inline static Status::Statuses alpha_blend_avx_(BmpImg* background, BmpImg* fore
 
     for (ssize_t i = 0; i < foreground->width * foreground->height / (4 * 2); i++) {
 
+        // loading pixels as 8-bit and extending them to 16-bit
         __m256i fore1 = _mm256_cvtepu8_epi16(_mm_load_si128((__m128i*)(fore_pixel + 0)));
 
         __m256i fore2 = _mm256_cvtepu8_epi16(_mm_load_si128((__m128i*)(fore_pixel + 4)));
@@ -112,35 +113,40 @@ inline static Status::Statuses alpha_blend_avx_(BmpImg* background, BmpImg* fore
 
         __m256i back2 = _mm256_cvtepu8_epi16(_mm_load_si128((__m128i*)(back_pixel + 4)));
 
+        // setting alpha channel vector. -1 stands for 0xFFFF
         __m256i alpha1 =
                 _mm256_set_epi16(-1, (fore_pixel + 3)->a, (fore_pixel + 3)->a, (fore_pixel + 3)->a,
-                                    -1, (fore_pixel + 2)->a, (fore_pixel + 2)->a, (fore_pixel + 2)->a,
-                                    -1, (fore_pixel + 1)->a, (fore_pixel + 1)->a, (fore_pixel + 1)->a,
-                                    -1, (fore_pixel + 0)->a, (fore_pixel + 0)->a, (fore_pixel + 0)->a);
+                                 -1, (fore_pixel + 2)->a, (fore_pixel + 2)->a, (fore_pixel + 2)->a,
+                                 -1, (fore_pixel + 1)->a, (fore_pixel + 1)->a, (fore_pixel + 1)->a,
+                                 -1, (fore_pixel + 0)->a, (fore_pixel + 0)->a, (fore_pixel + 0)->a);
 
         __m256i alpha2 =
                 _mm256_set_epi16(-1, (fore_pixel + 7)->a, (fore_pixel + 7)->a, (fore_pixel + 7)->a,
-                                    -1, (fore_pixel + 6)->a, (fore_pixel + 6)->a, (fore_pixel + 6)->a,
-                                    -1, (fore_pixel + 5)->a, (fore_pixel + 5)->a, (fore_pixel + 5)->a,
-                                    -1, (fore_pixel + 4)->a, (fore_pixel + 4)->a, (fore_pixel + 4)->a);
+                                 -1, (fore_pixel + 6)->a, (fore_pixel + 6)->a, (fore_pixel + 6)->a,
+                                 -1, (fore_pixel + 5)->a, (fore_pixel + 5)->a, (fore_pixel + 5)->a,
+                                 -1, (fore_pixel + 4)->a, (fore_pixel + 4)->a, (fore_pixel + 4)->a);
 
+        // rev_alpha = 255 - alpha
         __m256i rev_alpha1 = _mm256_sub_epi16(_mm256_set1_epi16(255), alpha1);
 
         __m256i rev_alpha2 = _mm256_sub_epi16(_mm256_set1_epi16(255), alpha2);
 
+        // result1 = (fore1 * alpha1 + back1 * rev_alpha1) >> 8
         __m256i result1 = _mm256_srli_epi16(_mm256_add_epi16(_mm256_mullo_epi16(fore1, alpha1),
-                                            _mm256_mullo_epi16(back1, rev_alpha1)), 8);
+                                                             _mm256_mullo_epi16(back1, rev_alpha1)), 8);
 
         __m256i result2 = _mm256_srli_epi16(_mm256_add_epi16(_mm256_mullo_epi16(fore2, alpha2),
-                                            _mm256_mullo_epi16(back2, rev_alpha2)), 8);
+                                                             _mm256_mullo_epi16(back2, rev_alpha2)), 8);
 
+        // result = {result1[left_half], result2[left_half], result1[right_half], result2[right_half]}
         __m256i result = _mm256_packus_epi16(result1, result2);
 
+        // result = {result1, result2}
         result = _mm256_permute4x64_epi64(result, 0b11'01'10'00);
 
         _mm256_store_si256((__m256i*)back_pixel, result);
 
-        back_pixel += 2 * 4;
+        back_pixel += 2 * 4; //< 2 packs of 4 pixels each
         fore_pixel += 2 * 4;
     }
 
