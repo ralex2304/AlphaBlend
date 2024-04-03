@@ -4,6 +4,6 @@
 //#define NAIVE
 #define VECTOR_AVX
 
-const int MEASURE_ITERS = 1000;
+const int MEASURE_ITERS = 1;
 
 #endif //< #ifndef CONFIG_H_

@@ -25,7 +25,8 @@ Status::Statuses BmpImg::read_from_file(const char* filename) {
     width = info_header->width;
     height = info_header->height;
 
-    img_array = file_buffer + file_header->offset + (32 - (((size_t)file_buffer + file_header->offset) % 32));
+    img_array = file_buffer + file_header->offset +
+                              (32 - (((size_t)file_buffer + file_header->offset) % 32));
 
     memmove(img_array, file_buffer + file_header->offset, size - file_header->offset);
 
@@ -39,6 +40,10 @@ Status::Statuses BmpImg::write_to_file(const char* filename) {
     assert(filename);
     assert(file_buffer);
     assert(file_size > 0);
+
+    BmpFileHeader* file_header = (BmpFileHeader*)file_buffer;
+
+    memmove(file_buffer + file_header->offset, img_array, file_size - file_header->offset);
 
     STATUS_CHECK(file_open_write_bytes_close(filename, file_buffer, file_size));
 

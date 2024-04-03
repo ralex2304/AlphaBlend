@@ -74,10 +74,11 @@ inline static Status::Statuses alpha_blend_naive_(BmpImg* background, BmpImg* fo
         for (ssize_t x = 0; x < foreground->width; x++) {
 
             uint8_t alpha = fore_pixel->a;
+            uint8_t rev_alpha = 255 - alpha;
 
-            back_pixel->b = (uint8_t)((fore_pixel->b * alpha + back_pixel->b * (255 - alpha)) / 255);
-            back_pixel->g = (uint8_t)((fore_pixel->g * alpha + back_pixel->g * (255 - alpha)) / 255);
-            back_pixel->r = (uint8_t)((fore_pixel->r * alpha + back_pixel->r * (255 - alpha)) / 255);
+            back_pixel->b = (uint8_t)((fore_pixel->b * alpha + back_pixel->b * rev_alpha) / 255);
+            back_pixel->g = (uint8_t)((fore_pixel->g * alpha + back_pixel->g * rev_alpha) / 255);
+            back_pixel->r = (uint8_t)((fore_pixel->r * alpha + back_pixel->r * rev_alpha) / 255);
 
             back_pixel++;
             fore_pixel++;
