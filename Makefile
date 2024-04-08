@@ -14,7 +14,7 @@ CFLAGS_SANITIZER = -fsanitize=address,alignment,bool,bounds,enum,float-cast-over
 				   object-size,return,returns-nonnull-attribute,shift,signed-integer-overflow,$\
 				   undefined,unreachable,vla-bound,vptr
 
-OPTIMISATION = -DNDEBUG -O2 -march=native $(OPTION_FLAGS)
+OPTIMISATION = -DNDEBUG -O2 -g -march=native $(OPTION_FLAGS)
 
 EXTERNAL_DIR =
 IFLAGS =
@@ -57,6 +57,11 @@ $(MAKE_DIRS): | $(BUILD_DIR)
 
 $(BUILD_DIR)/%.o: %.cpp | $(BUILD_DIR) $(MAKE_DIRS)
 	@$(CC) $(OPTIMISATION) $(IFLAGS) $(CFLAGS) $(if $(sanitizer), $(CFLAGS_SANITIZER)) -MMD -MP -c $< -o $@
+
+.PHONY: callgrind
+
+callgrind:
+	valgrind --dump-instr=yes --collect-jumps=yes --tool=callgrind $(prog)
 
 clean:
 	@rm -rf ./$(BUILD_DIR)/*

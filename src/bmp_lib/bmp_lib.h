@@ -5,6 +5,7 @@
 
 #include "../utils/macros.h"
 #include "../file/file.h"
+#include "../config.h"
 
 struct BmpFileHeader {
     uint16_t type      = 0;

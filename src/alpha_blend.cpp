@@ -1,10 +1,14 @@
 #include "alpha_blend.h"
 
-inline static Status::Statuses alpha_blend_naive_(BmpImg* background, BmpImg* foreground);
+#ifdef NAIVE
+static Status::Statuses alpha_blend_naive_(BmpImg* background, BmpImg* foreground);
+#endif
 
-inline static Status::Statuses alpha_blend_avx_(BmpImg* background, BmpImg* foreground);
+#ifdef VECTOR_AVX
+static Status::Statuses alpha_blend_avx_(BmpImg* background, BmpImg* foreground);
+#endif
 
-#define MAKE_POSITIVE_(x_) x_ = x_ < 0 ? -x_ : x_
+#define MAKE_POSITIVE_(x_) (x_) = (x_) < 0 ? -(x_) : (x_)
 
 Status::Statuses alpha_blend(BmpImg* background, BmpImg* foreground) {
     assert(background);
@@ -27,7 +31,7 @@ Status::Statuses alpha_blend(BmpImg* background, BmpImg* foreground) {
     }
 
     if (background->width != foreground->width) {
-        fprintf(stderr, "Error: background and foreground must have equal width\n"); // TODO make separate avx function for unaligned images
+        fprintf(stderr, "Error: background and foreground must have equal width\n");
         return Status::INPUT_ERROR;
     }
 
@@ -36,7 +40,7 @@ Status::Statuses alpha_blend(BmpImg* background, BmpImg* foreground) {
     MAKE_POSITIVE_(foreground->width);
     MAKE_POSITIVE_(foreground->height);
 
-    long begin = __rdtsc();
+    unsigned long long begin = __rdtsc();
 
     for (int i = 0; i < MEASURE_ITERS; i++) {
 
@@ -48,15 +52,16 @@ Status::Statuses alpha_blend(BmpImg* background, BmpImg* foreground) {
 
     }
 
-    long end = __rdtsc();
+    unsigned long long end = __rdtsc();
 
-    printf("%ld\n", end - begin);
+    printf("%llu\n", end - begin);
 
     return Status::NORMAL_WORK;
 }
 #undef MAKE_POSITIVE_
 
-inline static Status::Statuses alpha_blend_naive_(BmpImg* background, BmpImg* foreground) {
+#ifdef NAIVE
+static Status::Statuses alpha_blend_naive_(BmpImg* background, BmpImg* foreground) {
     assert(background);
     assert(foreground);
     assert(background->file_buffer);
@@ -90,8 +95,38 @@ inline static Status::Statuses alpha_blend_naive_(BmpImg* background, BmpImg* fo
 
     return Status::NORMAL_WORK;
 }
+#endif //< #ifdef NAIVE
 
-inline static Status::Statuses alpha_blend_avx_(BmpImg* background, BmpImg* foreground) {
+
+#ifdef VECTOR_AVX
+
+inline static __m256i _mm256_div255_epi16(__m256i a) {
+#ifndef INACCURATE_DIV255
+    return _mm256_srli_epi16(_mm256_add_epi16(_mm256_add_epi16 (a, _mm256_set1_epi16(1)),
+                                              _mm256_srli_epi16(a, 8)),
+                             8);    //< x / 255 = (x + 1 + (x >> 8)) >> 8
+#else //< #ifdef INACCURATE_DIV255
+    return _mm256_srli_epi16(a, 8); //< x / 256 = x >> 8
+#endif //< #ifndef INACCURATE_DIV255
+}
+
+inline static __m128i _mm_load_si128_aligned_choice_(__m128i const* a) {
+#ifdef ALIGN_IMG
+    return _mm_load_si128(a);
+#else //< #ifndef ALIGN_IMG
+    return _mm_loadu_si128(a);
+#endif //< #ifdef ALIGN_IMG
+}
+
+inline static void _mm256_store_si256_aligned_choice_(__m256i* p, __m256i a) {
+#ifdef ALIGN_IMG
+    _mm256_store_si256(p, a);
+#else //< #ifndef ALIGN_IMG
+    _mm256_storeu_si256(p, a);
+#endif //< #ifdef ALIGN_IMG
+}
+
+static Status::Statuses alpha_blend_avx_(BmpImg* background, BmpImg* foreground) {
     assert(background);
     assert(foreground);
     assert(background->file_buffer);
@@ -105,39 +140,44 @@ inline static Status::Statuses alpha_blend_avx_(BmpImg* background, BmpImg* fore
 
     for (ssize_t i = 0; i < foreground->width * foreground->height / (4 * 2); i++) {
 
-        // loading pixels as 8-bit and extending them to 16-bit
-        __m256i fore1 = _mm256_cvtepu8_epi16(_mm_load_si128((__m128i*)(fore_pixel + 0)));
+        // load pixels as 8-bit and extend them to 16-bit
+        __m256i fore1 = _mm256_cvtepu8_epi16(_mm_load_si128_aligned_choice_((__m128i*)(fore_pixel + 0)));
 
-        __m256i fore2 = _mm256_cvtepu8_epi16(_mm_load_si128((__m128i*)(fore_pixel + 4)));
+        __m256i fore2 = _mm256_cvtepu8_epi16(_mm_load_si128_aligned_choice_((__m128i*)(fore_pixel + 4)));
 
-        __m256i back1 = _mm256_cvtepu8_epi16(_mm_load_si128((__m128i*)(back_pixel + 0)));
+        __m256i back1 = _mm256_cvtepu8_epi16(_mm_load_si128_aligned_choice_((__m128i*)(back_pixel + 0)));
 
-        __m256i back2 = _mm256_cvtepu8_epi16(_mm_load_si128((__m128i*)(back_pixel + 4)));
+        __m256i back2 = _mm256_cvtepu8_epi16(_mm_load_si128_aligned_choice_((__m128i*)(back_pixel + 4)));
 
-        // setting alpha channel vector. -1 stands for 0xFFFF
+        // set alpha channel vector
         __m256i alpha1 =
-                _mm256_set_epi16(-1, (fore_pixel + 3)->a, (fore_pixel + 3)->a, (fore_pixel + 3)->a,
-                                 -1, (fore_pixel + 2)->a, (fore_pixel + 2)->a, (fore_pixel + 2)->a,
-                                 -1, (fore_pixel + 1)->a, (fore_pixel + 1)->a, (fore_pixel + 1)->a,
-                                 -1, (fore_pixel + 0)->a, (fore_pixel + 0)->a, (fore_pixel + 0)->a);
+                _mm256_set_epi16(0xFFFFu, (fore_pixel + 3)->a, (fore_pixel + 3)->a, (fore_pixel + 3)->a,
+                                 0xFFFFu, (fore_pixel + 2)->a, (fore_pixel + 2)->a, (fore_pixel + 2)->a,
+                                 0xFFFFu, (fore_pixel + 1)->a, (fore_pixel + 1)->a, (fore_pixel + 1)->a,
+                                 0xFFFFu, (fore_pixel + 0)->a, (fore_pixel + 0)->a, (fore_pixel + 0)->a);
 
         __m256i alpha2 =
-                _mm256_set_epi16(-1, (fore_pixel + 7)->a, (fore_pixel + 7)->a, (fore_pixel + 7)->a,
-                                 -1, (fore_pixel + 6)->a, (fore_pixel + 6)->a, (fore_pixel + 6)->a,
-                                 -1, (fore_pixel + 5)->a, (fore_pixel + 5)->a, (fore_pixel + 5)->a,
-                                 -1, (fore_pixel + 4)->a, (fore_pixel + 4)->a, (fore_pixel + 4)->a);
+                _mm256_set_epi16(0xFFFFu, (fore_pixel + 7)->a, (fore_pixel + 7)->a, (fore_pixel + 7)->a,
+                                 0xFFFFu, (fore_pixel + 6)->a, (fore_pixel + 6)->a, (fore_pixel + 6)->a,
+                                 0xFFFFu, (fore_pixel + 5)->a, (fore_pixel + 5)->a, (fore_pixel + 5)->a,
+                                 0xFFFFu, (fore_pixel + 4)->a, (fore_pixel + 4)->a, (fore_pixel + 4)->a);
 
-        // rev_alpha = 255 - alpha
+        // rev_alpha1 = 255 - alpha1
         __m256i rev_alpha1 = _mm256_sub_epi16(_mm256_set1_epi16(255), alpha1);
 
         __m256i rev_alpha2 = _mm256_sub_epi16(_mm256_set1_epi16(255), alpha2);
 
-        // result1 = (fore1 * alpha1 + back1 * rev_alpha1) >> 8
-        __m256i result1 = _mm256_srli_epi16(_mm256_add_epi16(_mm256_mullo_epi16(fore1, alpha1),
-                                                             _mm256_mullo_epi16(back1, rev_alpha1)), 8);
+        // sum1 = (fore1 * alpha1 + back1 * rev_alpha1)
+        __m256i sum1 = _mm256_add_epi16(_mm256_mullo_epi16(fore1, alpha1),
+                                        _mm256_mullo_epi16(back1, rev_alpha1));
 
-        __m256i result2 = _mm256_srli_epi16(_mm256_add_epi16(_mm256_mullo_epi16(fore2, alpha2),
-                                                             _mm256_mullo_epi16(back2, rev_alpha2)), 8);
+        __m256i sum2 = _mm256_add_epi16(_mm256_mullo_epi16(fore2, alpha2),
+                                        _mm256_mullo_epi16(back2, rev_alpha2));
+
+        // result1 = (fore1 * alpha1 + back1 * rev_alpha1) / 255
+        __m256i result1 = _mm256_div255_epi16(sum1);
+
+        __m256i result2 = _mm256_div255_epi16(sum2);
 
         // result = {result1[left_half], result2[left_half], result1[right_half], result2[right_half]}
         __m256i result = _mm256_packus_epi16(result1, result2);
@@ -145,7 +185,7 @@ inline static Status::Statuses alpha_blend_avx_(BmpImg* background, BmpImg* fore
         // result = {result1, result2}
         result = _mm256_permute4x64_epi64(result, 0b11'01'10'00);
 
-        _mm256_store_si256((__m256i*)back_pixel, result);
+        _mm256_store_si256_aligned_choice_((__m256i*)back_pixel, result);
 
         back_pixel += 2 * 4; //< 2 packs of 4 pixels each
         fore_pixel += 2 * 4;
@@ -153,3 +193,4 @@ inline static Status::Statuses alpha_blend_avx_(BmpImg* background, BmpImg* fore
 
     return Status::NORMAL_WORK;
 }
+#endif //< #ifdef VECTOR_AVX
